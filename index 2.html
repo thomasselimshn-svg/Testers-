@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Finances">
+<meta name="theme-color" content="#eef1ec"><title>Finances</title>
+<style>
+:root{--bg:#eef1ec;--card:#fff;--ink:#14211c;--mute:#6b7a73;--ac:#0f5c4d;--neg:#b4432f;--line:#d9dfd9}
+@media(prefers-color-scheme:dark){:root{--bg:#101612;--card:#18211c;--ink:#e8efe9;--mute:#8a9a91;--ac:#4cc3a6;--neg:#e5826e;--line:#2a3730}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(76px + env(safe-area-inset-bottom))}
+main{max-width:560px;margin:0 auto;padding:16px}h1{font-size:15px;font-weight:600;color:var(--mute);margin:0 0 4px}h2{font-size:17px;margin:22px 0 8px}
+.big{font-size:44px;font-weight:700;letter-spacing:-1px;font-variant-numeric:tabular-nums}.neg{color:var(--neg)}.mute{color:var(--mute);font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.card{background:var(--card);border-radius:14px;padding:12px;border:1px solid var(--line)}
+.card b{display:block;font-size:19px;font-variant-numeric:tabular-nums}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:15px}.row:last-child{border:0}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px;margin:4px 0}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:11px 16px;background:var(--ac);color:var(--bg);cursor:pointer}button.g{background:transparent;color:var(--mute);padding:6px 8px}button.o{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;color:var(--mute);border-radius:0;padding:14px 2px;font-size:12px}nav button.on{color:var(--ac);box-shadow:inset 0 2px 0 var(--ac)}
+.tag{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute)}.late{color:var(--neg);border-color:var(--neg)}
+.bar{height:6px;border-radius:9px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
+</style></head><body><main id="app"></main>
+<nav id="nav"></nav>
+<script>
+const K='fin_v1',CATS={'Stock habituel':'pro',"Stock d'été":'pro','Cotisations sociales':'pro','Courses':'perso','Salle de sport':'perso','Autres dépenses':'perso','Vêtement perso':'perso'};
+const ENVS=['Vacances','Livret A','Investissements',"Stock d'été"];
+const DEF={base:200000,tx:[],orders:[],inst:[],log:[],vals:{},rules:[
+['Stock habituel','p',40,'c:Stock habituel'],['Vacances','p',10,'e:Vacances'],['Investissements','p',7.5,'e:Investissements'],['Courses','f',6000,'c:Courses'],['Salle de sport','f',2000,'c:Salle de sport'],['Autres dépenses','p',2.5,'c:Autres dépenses'],["Futur stock d'été",'p',12.5,"e:Stock d'été"],['Livret A','p',5,'e:Livret A'],['Cotisations sociales','p',6.2,'c:Cotisations sociales']]};
+let db;try{db=JSON.parse(localStorage.getItem(K))||structuredClone(DEF)}catch(e){db=structuredClone(DEF)}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(db))}catch(e){alert('Sauvegarde impossible')}};
+try{navigator.storage&&navigator.storage.persist()}catch(e){}
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const eur=c=>((c||0)/100).toLocaleString('fr-FR',{style:'currency',currency:'EUR'});
+const cents=s=>Math.round(parseFloat(String(s).replace(',','.'))*100);
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const today=()=>iso(new Date()),uid=()=>Math.random().toString(36).slice(2,10);
+const addM=(s,n)=>{const d=new Date(s+'T12:00:00');d.setMonth(d.getMonth()+n);return iso(d)};
+const mon=s=>s.slice(0,7),thisM=()=>today().slice(0,7),prevM=()=>addM(today().slice(0,8)+'01',-1).slice(0,7);
+function sum(m){const r={rev:0,pro:0,per:0,sav:0,inv:0};db.tx.filter(t=>mon(t.date)===m).forEach(t=>{if(t.type==='income')r.rev+=t.amt;else if(t.type==='expense')CATS[t.cat]==='pro'?r.pro+=t.amt:r.per+=t.amt;else if(t.type==='saving')r.sav+=t.amt;else if(t.type==='investment')r.inv+=t.amt});r.sur=r.rev-r.pro-r.per-r.sav-r.inv;return r}
+function bal(e){let i=0,o=0;db.tx.forEach(t=>{if((t.type==='saving'||t.type==='investment')&&t.env===e)i+=t.amt;if(t.type==='transfer'){if(t.to===e)i+=t.amt;if(t.from===e)o+=t.amt}});return{i,o,b:i-o}}
+const status=i=>i.st==='planned'&&i.date<today()?'late':i.st;
+const planned=()=>db.inst.filter(i=>i.st==='planned').sort((a,b)=>a.date.localeCompare(b.date));
+function log(a,o,n){db.log.unshift({d:new Date().toISOString().slice(0,16).replace('T',' '),a,o,n});db.log=db.log.slice(0,100)}
+function mkOrder(label,total,n,cat,first,fees=0){const id=uid();db.orders.push({id,label,total,n,cat,date:first});
+ const part=Math.floor(total/n),rest=total-part*n;
+ for(let k=0;k<n;k++)db.inst.push({id:uid(),oid:id,label:label+' ('+(k+1)+'/'+n+')',amt:part+(k===0?rest:0),date:addM(first,k),st:'planned'});
+ if(fees)db.inst.push({id:uid(),oid:id,label:label+' (frais)',amt:fees,date:first,st:'planned'});
+ db.tx.push({id:uid(),type:'expense',amt:total,date:first,label,cat,oid:id})} // UNE seule dépense
+const cur={tab:'home',parsed:null};
+const TABS=[['home','Accueil'],['add','Ajouter'],['hist','Historique'],['cal','Échéances'],['bud','Budget'],['env','Épargne']];
+function go(t){cur.tab=t;draw()}
+function draw(){$('#nav').innerHTML=TABS.map(([k,v])=>`<button class="${cur.tab===k?'on':''}" onclick="go('${k}')">${v}</button>`).join('');$('#app').innerHTML=V[cur.tab]();window.scrollTo(0,0)}
+const row=(a,b,c='')=>`<div class="row"><span>${a}</span><span class="${c}">${b}</span></div>`;
+const V={
+home(){const s=sum(thisM()),p=sum(prevM()),pl=planned(),res=pl.reduce((a,i)=>a+i.amt,0),w=pl.filter(i=>i.date<=addM(today(),0).slice(0,8)+'99'&&(new Date(i.date)-new Date(today()))/864e5<=7);
+ const d=s.rev-p.rev,cot=db.rules.find(r=>r[0]==='Cotisations sociales');
+ return `<h1>Surplus réel du mois</h1><div class="big ${s.sur<0?'neg':''}">${eur(s.sur)}</div><div class="mute">Après dépenses, épargne et investissements réellement enregistrés</div>
+ <div class="grid"><div class="card">CA du mois<b>${eur(s.rev)}</b><span class="mute">${d>=0?'+':''}${eur(d)} vs mois précédent</span></div><div class="card">Réservé (échéances)<b>${eur(res)}</b><span class="mute">Reste réel : ${eur(s.sur-res)}</span></div>
+ <div class="card">Dépenses pro<b>${eur(s.pro)}</b></div><div class="card">Dépenses perso<b>${eur(s.per)}</b></div>
+ <div class="card">Cotisations estimées<b>${eur(Math.round(s.rev*(cot?cot[2]:0)/100))}</b></div><div class="card">Épargné / investi<b>${eur(s.sav)} / ${eur(s.inv)}</b></div></div>
+ <h2>Prochaines échéances</h2>${pl.slice(0,5).map(i=>row(esc(i.label)+' <span class="mute">'+i.date+'</span>',eur(i.amt),status(i)==='late'?'neg':'')).join('')||'<p class="mute">Aucune échéance prévue.</p>'}
+ <h2>Dernières transactions</h2>${db.tx.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5).map(t=>row(esc(t.label||t.cat||t.type),(t.type==='income'?'+':'−')+eur(t.amt))).join('')||'<p class="mute">Rien pour l’instant : va dans Ajouter.</p>'}
+ <h2>Réglages</h2><button class="o" onclick="go('set')">Sauvegarde et export</button>`},
+add(){return `<h1>Dis ce que tu as fait</h1>
+ <textarea id="nl" rows="3" placeholder="Ex : j’ai payé 50 € de courses et 80 € de stock d’été en trois fois"></textarea>
+ <div style="display:flex;gap:8px"><button onclick="parseNL()">Comprendre</button><button class="o" onclick="mic()">🎤 Parler</button></div><div id="pv"></div>
+ <h2>Saisie manuelle</h2><select id="m_t" onchange="mt()"><option value="expense">Dépense</option><option value="income">Recette</option><option value="saving">Épargne</option><option value="investment">Investissement</option><option value="transfer">Transfert entre enveloppes</option></select>
+ <input id="m_a" inputmode="decimal" placeholder="Montant (€)"><input id="m_d" type="date" value="${today()}"><input id="m_l" placeholder="Libellé (facultatif)">
+ <select id="m_c">${Object.keys(CATS).map(c=>`<option>${esc(c)}</option>`)}</select>
+ <select id="m_e">${ENVS.map(c=>`<option>${esc(c)}</option>`)}</select><select id="m_e2" style="display:none">${ENVS.map(c=>`<option>${esc(c)}</option>`)}</select>
+ <div id="m_n"><select id="m_f"><option value="1">Payé en 1 fois</option><option>2</option><option>3</option><option>4</option><option>6</option><option>10</option></select><input id="m_fe" inputmode="decimal" placeholder="Frais de fractionnement (€, facultatif)"></div>
+ <button onclick="manual()">Enregistrer</button>`},
+hist(){const l=db.tx.slice().sort((a,b)=>b.date.localeCompare(a.date));return `<h1>Historique</h1>`+(l.map(t=>`<div class="row"><span>${esc(t.label||t.cat||t.env||t.type)}<br><span class="mute">${t.date} · ${t.type}${t.oid?' · commande':''}</span></span><span>${t.type==='income'?'+':'−'}${eur(t.amt)}<br><button class="g" onclick="editTx('${t.id}')">Modifier</button><button class="g" onclick="delTx('${t.id}')">Supprimer</button></span></div>`).join('')||'<p class="mute">Aucune transaction.</p>')},
+cal(){const pl=db.inst.slice().sort((a,b)=>a.date.localeCompare(b.date)),n7=pl.filter(i=>i.st==='planned'&&(new Date(i.date)-new Date(today()))/864e5<=7).reduce((a,i)=>a+i.amt,0),m=pl.filter(i=>i.st==='planned'&&mon(i.date)===thisM()).reduce((a,i)=>a+i.amt,0);
+ const os=db.orders.map(o=>{const x=db.inst.filter(i=>i.oid===o.id),paid=x.filter(i=>i.st==='paid').reduce((a,i)=>a+i.amt,0);return `<div class="row"><span>${esc(o.label)}<br><span class="mute">Total ${eur(o.total)} · payé ${eur(paid)} · reste ${eur(x.filter(i=>i.st==='planned').reduce((a,i)=>a+i.amt,0))}</span></span><span class="mute">${x.filter(i=>i.st==='planned').length} restante(s)</span></div>`}).join('');
+ return `<h1>Échéances</h1><div class="grid"><div class="card">7 prochains jours<b>${eur(n7)}</b></div><div class="card">Ce mois<b>${eur(m)}</b></div></div><h2>Calendrier</h2>`+
+ (pl.map(i=>{const s=status(i);return `<div class="row"><span>${esc(i.label)}<br><span class="mute">${i.date}</span> <span class="tag ${s==='late'?'late':''}">${{planned:'prévu',paid:'payé',late:'en retard',cancelled:'annulé'}[s]}</span></span><span>${eur(i.amt)}<br>${i.st==='planned'?`<button class="g" onclick="pay('${i.id}')">Payée</button><button class="g" onclick="cancelI('${i.id}')">Annuler</button>`:''}</span></div>`}).join('')||'<p class="mute">Aucune échéance. Déclare un achat en plusieurs fois dans Ajouter.</p>')+(os?'<h2>Commandes</h2>'+os:'')},
+bud(){const m=thisM(),base=cur.sim??db.base,cl=db.rules.map((r,i)=>{const ob=r[1]==='f'?r[2]:Math.round(base*r[2]/100),[k,n]=r[3].split(':');
+  const re=db.tx.filter(t=>mon(t.date)===m&&(k==='c'?(t.type==='expense'&&t.cat===n):(t.type==='saving'||t.type==='investment')&&t.env===n)).reduce((a,t)=>a+t.amt,0);return{r,i,ob,re}}),to=cl.reduce((a,c)=>a+c.re,0);
+ return `<h1>Base de calcul</h1><input id="sim" inputmode="decimal" value="${(base/100)}" placeholder="CA simulé (€)"><div style="display:flex;gap:8px"><button class="o" onclick="cur.sim=cents($('#sim').value);draw()">Simuler</button><button class="o" onclick="db.base=cents($('#sim').value);cur.sim=null;save();draw()">Définir comme base</button></div>
+ <p class="mute">Les objectifs sont des prévisions, pas des transactions. Le surplus n’a pas d’objectif : c’est ce qui reste réellement.</p><h2>Objectif / réellement affecté (ce mois)</h2>`+
+ cl.map(c=>`<div class="row" style="display:block"><div style="display:flex;justify-content:space-between"><span>${esc(c.r[0])}</span><span>${eur(c.re)} / ${eur(c.ob)}</span></div><div class="bar"><i style="width:${Math.min(100,c.ob?c.re/c.ob*100:0)}%"></i></div><div class="mute">Écart : ${eur(c.ob-c.re)} · règle : <input style="width:90px;display:inline;padding:4px" value="${c.r[1]==='f'?c.r[2]/100:c.r[2]}" onchange="setRule(${c.i},this.value)"> ${c.r[1]==='f'?'€ fixes':'%'}</div></div>`).join('')+
+ row('Surplus réel du mois',eur(sum(m).sur))},
+env(){return `<h1>Épargne et investissements</h1>`+ENVS.map(e=>{const b=bal(e),inv=e==='Investissements';return `<div class="card" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><b>${esc(e)}</b><b>${eur(b.b)}</b></div><div class="mute">Versé ${eur(b.i)} · retiré ${eur(b.o)}</div>${inv?`<div class="mute">Valeur actuelle du portefeuille : <input style="width:110px;display:inline;padding:4px" inputmode="decimal" value="${db.vals[e]!=null?db.vals[e]/100:''}" placeholder="€" onchange="db.vals['${e}']=cents(this.value);save()"></div>`:''}</div>`}).join('')+`<p class="mute">Un transfert entre enveloppes n’est jamais une dépense.</p>`},
+set(){return `<h1>Sauvegarde et export</h1><p class="mute">Tes données sont enregistrées dans ce navigateur. Pour les garder en sécurité ou les passer sur un autre téléphone, exporte un fichier de sauvegarde régulièrement.</p>
+ <button onclick="exp()">Exporter la sauvegarde</button> <button class="o" onclick="csv()">Exporter en CSV</button><h2>Restaurer</h2><input type="file" accept=".json" onchange="imp(this)">
+ <h2>Historique des modifications</h2>${db.log.slice(0,20).map(l=>row(l.d+' '+esc(l.a),esc(l.o)+(l.n?' → '+esc(l.n):''))).join('')||'<p class="mute">Aucune modification.</p>'}<button class="g" onclick="go('home')">Retour</button>`}};
+function mt(){const t=$('#m_t').value;$('#m_c').style.display=t==='expense'?'':'none';$('#m_e').style.display=/saving|investment|transfer/.test(t)?'':'none';$('#m_e2').style.display=t==='transfer'?'':'none';$('#m_n').style.display=t==='expense'?'':'none'}
+function manual(){const t=$('#m_t').value,a=cents($('#m_a').value);if(!(a>0))return alert('Montant invalide');const d=$('#m_d').value||today(),l=$('#m_l').value,n=+$('#m_f').value;
+ if(t==='expense'&&n>1)mkOrder(l||$('#m_c').value,a,n,$('#m_c').value,d,cents($('#m_fe').value)||0);
+ else if(t==='transfer'){if($('#m_e').value===$('#m_e2').value)return alert('Choisis deux enveloppes différentes');db.tx.push({id:uid(),type:'transfer',amt:a,date:d,label:l,from:$('#m_e').value,to:$('#m_e2').value})}
+ else{if(db.tx.some(x=>x.amt===a&&x.date===d&&x.type===t&&(x.label||'')===l)&&!confirm('Une transaction identique existe déjà. L’ajouter quand même ?'))return;db.tx.push({id:uid(),type:t,amt:a,date:d,label:l,cat:t==='expense'?$('#m_c').value:null,env:/saving|investment/.test(t)?$('#m_e').value:null})}
+ save();go('home')}
+function parseNL(){const txt=$('#nl').value.trim();if(!txt)return;const parts=txt.split(/\s+et\s+(?=[^.]*\d)/i),out=[];
+ const N={deux:2,trois:3,quatre:4,cinq:5,six:6};
+ parts.forEach(p=>{const m=p.match(/(\d+(?:[.,]\d+)?)\s*(?:€|euros?)?/);if(!m)return;const a=cents(m[1]),low=p.toLowerCase();let type='expense',cat='Autres dépenses',env=null;
+  if(/re[çc]u|vente|gagn|encaiss/.test(low)){type='income';cat=null}
+  else if(/côté|cote|épargn|epargn|livret/.test(low)){type='saving';env=/vacances/.test(low)?'Vacances':/livret/.test(low)?'Livret A':/été|ete/.test(low)?"Stock d'été":'Vacances'}
+  else if(/investi/.test(low)){type='investment';env='Investissements'}
+  else if(/course/.test(low))cat='Courses';else if(/sport|salle/.test(low))cat='Salle de sport';
+  else if(/stock|lot|revente/.test(low))cat=/été|ete/.test(low)?"Stock d'été":'Stock habituel';else if(/cotisation|urssaf/.test(low))cat='Cotisations sociales';else if(/pour moi|vêtement|vetement/.test(low))cat='Vêtement perso';
+  const f=low.match(/(\d+|deux|trois|quatre|cinq|six)\s*fois/),n=f?(N[f[1]]||+f[1]):1;
+  out.push({type,amt:a,cat,env,n:type==='expense'?n:1,date:/hier/.test(low)?addM(today(),0)&&iso(new Date(Date.now()-864e5)):today(),label:p.trim().slice(0,60),sure:type!=='expense'||/course|sport|salle|stock|lot|revente|cotisation|vêtement|vetement/.test(low)})});
+ cur.parsed=out;if(!out.length){$('#pv').innerHTML='<p class="neg">Je n’ai trouvé aucun montant. Précise la somme, ou utilise la saisie manuelle.</p>';return}
+ $('#pv').innerHTML='<h2>Vérifie avant d’enregistrer</h2>'+out.map((o,i)=>`<div class="card" style="margin-bottom:8px">${{expense:'Dépense',income:'Recette',saving:'Épargne',investment:'Investissement'}[o.type]} · <b style="display:inline">${eur(o.amt)}</b> · ${o.date}<br><span class="mute">${esc(o.cat||o.env||'')}${o.n>1?' · en '+o.n+' fois':''}${o.sure?'':' · catégorie incertaine, vérifie'}</span></div>`).join('')+'<button onclick="okParsed()">Tout enregistrer</button>'}
+function okParsed(){cur.parsed.forEach(o=>{if(o.type==='expense'&&o.n>1)mkOrder(o.label,o.amt,o.n,o.cat,o.date);else db.tx.push({id:uid(),type:o.type,amt:o.amt,date:o.date,label:o.label,cat:o.cat,env:o.env,src:'nl'})});cur.parsed=null;save();go('home')}
+function mic(){const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R)return alert('Ce navigateur ne gère pas la dictée. Utilise le micro du clavier de ton téléphone dans la zone de texte.');const r=new R();r.lang='fr-FR';r.onresult=e=>{$('#nl').value=e.results[0][0].transcript;parseNL()};r.onerror=()=>alert('Dictée impossible. Utilise le micro du clavier.');r.start()}
+function editTx(id){const t=db.tx.find(x=>x.id===id),v=prompt('Nouveau montant en € (actuel : '+t.amt/100+')');if(v===null)return;const a=cents(v);if(!(a>0))return;log('Montant modifié',t.label||t.cat||t.type,eur(t.amt)+' → '+eur(a));t.amt=a;save();draw()}
+function delTx(id){const t=db.tx.find(x=>x.id===id);if(!confirm('Supprimer cette transaction'+(t.oid?' ET toute la commande avec ses échéances':'')+' ?'))return;log('Supprimé',t.label||t.cat||t.type,eur(t.amt));db.tx=db.tx.filter(x=>x.id!==id);if(t.oid){db.inst=db.inst.filter(i=>i.oid!==t.oid);db.orders=db.orders.filter(o=>o.id!==t.oid)}save();draw()}
+function pay(id){const i=db.inst.find(x=>x.id===id);i.st='paid';log('Échéance payée',i.label,eur(i.amt));save();draw()}
+function cancelI(id){const i=db.inst.find(x=>x.id===id);if(!confirm('Annuler cette échéance ?'))return;i.st='cancelled';log('Échéance annulée',i.label,'');save();draw()}
+function setRule(i,v){const r=db.rules[i],x=parseFloat(String(v).replace(',','.'));if(isNaN(x))return;r[2]=r[1]==='f'?Math.round(x*100):x;save();draw()}
+function dl(n,c,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=n;a.click()}
+function exp(){dl('finances-'+today()+'.json',JSON.stringify(db),'application/json')}
+function csv(){dl('transactions-'+today()+'.csv','date;type;montant;categorie;enveloppe;libelle\n'+db.tx.map(t=>[t.date,t.type,t.amt/100,t.cat||'',t.env||'',(t.label||'').replace(/;/g,',')].join(';')).join('\n'),'text/csv')}
+function imp(el){const f=el.files[0];if(!f)return;f.text().then(s=>{const d=JSON.parse(s);if(!d.tx||!confirm('Remplacer toutes les données actuelles par cette sauvegarde ?'))return;db=d;save();go('home')}).catch(()=>alert('Fichier invalide'))}
+draw();
+</script></body></html>
